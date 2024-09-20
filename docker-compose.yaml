@@ -1,0 +1,8 @@
+services:
+  proxy:
+    build:
+      context: ./proxy  
+    ports:
+      - "8080:8080"
+    # volumes:
+      # - ./proxy:/app
