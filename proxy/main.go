@@ -10,7 +10,6 @@ import (
 )
 
 func handleTunnel(w http.ResponseWriter, r *http.Request) {
-	// Извлечение целевого хоста (например, mail.ru:443)
 	targetHost := r.Host
 	if !strings.Contains(targetHost, ":") {
 		targetHost += ":443" // если порт не указан, добавляем порт 443 по умолчанию
@@ -44,7 +43,6 @@ func handleTunnel(w http.ResponseWriter, r *http.Request) {
 	io.Copy(clientConn, serverConn)
 }
 
-// handleProxy обрабатывает входящие запросы и проксирует их на целевой сервер
 func handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	// log.Println("Received request:")
@@ -64,10 +62,8 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Удаление заголовка Proxy-Connection
 	r.Header.Del("Proxy-Connection")
 
-	// Извлечение хоста и пути
 	host := r.Host
 	if host == "" {
 		http.Error(w, "Host header is missing", http.StatusBadRequest)
@@ -77,16 +73,6 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	scheme := "http"
 	if r.URL.Scheme == "https" || r.Method == http.MethodConnect {
 		scheme = "https"
-	}
-
-	if !strings.Contains(host, ":") {
-		if r.URL.Scheme == "https" || r.Method == http.MethodConnect {
-			// Если это HTTPS, добавляем порт 443 (по умолчанию)
-			host += ":443"
-		} else {
-			// Для HTTP добавляем порт 80
-			host += ":80"
-		}
 	}
 
 	targetURL := &url.URL{
@@ -119,7 +105,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Отправка запроса на целевой сервер
+	// Отправка запроса
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		http.Error(w, "Failed to reach server", http.StatusBadGateway)
