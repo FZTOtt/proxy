@@ -1,8 +1,30 @@
 services:
+  postgres:
+    restart: always
+    image: postgres:16.3
+    environment:
+      POSTGRES_DB: "proxyDB"
+      POSTGRES_USER: "aa"
+      POSTGRES_PASSWORD: "1"
+    ports:
+      - "5433:5432"
+
   proxy:
     build:
-      context: ./proxy  
+      context: .
+      dockerfile: ./build/proxy.dockerfile
     ports:
       - "8080:8080"
-    # volumes:
-      # - ./proxy:/app
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: proxyDB
+      DB_USER: proxyUser
+      DB_PASSWORD: proxypassword  
+
+  api:
+    build:
+      context: .
+      dockerfile: ./build/api.dockerfile
+    ports:
+      - "8000:8000"
