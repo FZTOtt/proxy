@@ -17,6 +17,12 @@ def initialize_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    drop_requests_table_query = "DROP TABLE IF EXISTS responses CASCADE;"
+    drop_responses_table_query = "DROP TABLE IF EXISTS requests CASCADE;"
+    
+    cursor.execute(drop_responses_table_query)
+    cursor.execute(drop_requests_table_query)
+
     create_requests_table_query = """
     CREATE TABLE IF NOT EXISTS requests (
         id SERIAL PRIMARY KEY,
