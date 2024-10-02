@@ -25,9 +25,8 @@ def handle_https_tunnel(client_socket, request):
 
         # Коннект к целевому серверу
         try:
-            server_socket = socket.create_connection((target_host, target_port))
-            context = ssl.create_default_context()
-            server_socket = context.wrap_socket(server_socket, server_hostname=target_host)
+            target_sock = socket.create_connection((target_host, target_port))
+            target_conn = ssl.wrap_socket(target_sock)
             print(f"Настроили {target_host}:{target_port} SSL")
         except Exception as e:
             print(f"Не подключились к серверу: {e}")
@@ -37,15 +36,22 @@ def handle_https_tunnel(client_socket, request):
         cert_path, key_path = generate_cert(target_host)
 
         print('genned sert')
+        
+        client_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        client_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        client_conn = client_context.wrap_socket(client_socket, server_side=True)
 
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-        client_socket = context.wrap_socket(client_socket, server_side=True)
+        client_to_server = Thread(target=forward_https, args=(client_conn, target_conn, True))
+        server_to_client = Thread(target=forward_https, args=(target_conn, client_conn, False))
+        client_to_server.start()
+        server_to_client.start()
 
-        Thread(target=forward_https, args=(client_socket, server_socket, True)).start()
-        Thread(target=forward_https, args=(server_socket, client_socket, False)).start()
+        client_to_server.join()
+        server_to_client.join()
+        client_conn.close()
+        target_conn.close()
 
     except Exception as e:
         print(f"https handle error: {e}")
-        client_socket.close()
-        server_socket.close()
+        client_conn.close()
+        target_conn.close()

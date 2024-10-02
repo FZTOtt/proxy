@@ -8,23 +8,36 @@ services:
       POSTGRES_PASSWORD: "1"
     ports:
       - "5433:5432"
+    networks:
+      - proxy-network
 
   proxy:
+    depends_on:
+      - postgres
     build:
       context: .
-      dockerfile: ./build/proxy.dockerfile
+      dockerfile: build\proxy.Dockerfile
+    environment:
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "proxyDB"
+      DB_USER: "aa"
+      DB_PASSWORD: "1"
     ports:
       - "8080:8080"
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: proxyDB
-      DB_USER: proxyUser
-      DB_PASSWORD: proxypassword  
+    networks:
+      - proxy-network
 
   api:
     build:
       context: .
-      dockerfile: ./build/api.dockerfile
+      dockerfile: build\api.Dockerfile
     ports:
       - "8000:8000"
+    networks:
+      - proxy-network
+
+networks:
+  proxy-network:
+    name: proxy-network
+    driver: bridge

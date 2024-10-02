@@ -1,13 +1,12 @@
 import json
 import os
 import psycopg2
-from psycopg2 import sql
 
 # Функция для подключения к базе данных
 def get_db_connection():
     conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=os.getenv("DB_PORT", "5433"),
+        host=os.getenv("DB_HOST", "postgres"),
+        port=os.getenv("DB_PORT", "5432"),
         dbname=os.getenv("DB_NAME", "proxyDB"),
         user=os.getenv("DB_USER", "aa"),
         password=os.getenv("DB_PASSWORD", "1")

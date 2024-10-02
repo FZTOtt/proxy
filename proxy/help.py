@@ -1,4 +1,5 @@
 import gzip
+from http.cookies import SimpleCookie
 import io
 import os
 import subprocess
@@ -6,12 +7,9 @@ from urllib.parse import parse_qs, urlparse
 
 from db import insert_request, insert_response
 
-OPENSSL_PATH = r'C:\Program Files\OpenSSL-Win64\bin\openssl.exe'
-OPENSSL_CNF = r'C:\Program Files\OpenSSL-Win64\bin\openssl.cnf' 
-
 # Пути к корневому сертификату и ключу
-CA_CERT = 'ca_cert.pem'
-CA_KEY = 'ca_key.pem'
+CA_CERT = 'ca.crt'
+CA_KEY = 'ca.key'
 CERTS_DIR = './certs/'  # Директория для временных сертификатов
 last_request_id = 0
 def parse_body(client_socket, method, headers):
@@ -33,7 +31,7 @@ def decompress_gzip(data):
     
 def parse_http_request(request):
     lines = request.split("\n")
-    method, full_path, _ = lines[0].split()
+    method, full_path, version = lines[0].split()
 
     # Парсим путь и GET параметры
     parsed_url = urlparse(full_path)
@@ -46,23 +44,24 @@ def parse_http_request(request):
     for line in lines[1:]:
         if ": " in line:
             key, value = line.split(": ", 1)
-            headers[key] = value
+            headers[key] = value.replace('\r', '')
             if key == "Cookie":
-                cookies = dict(item.split('=') for item in value.split('; '))
+                cookie = SimpleCookie()
+                cookie.load(value)
+                cookies = {k: v.value for k, v in cookie.items()}
 
     return method, path, headers, cookies, get_params
 
 def get_post_parameters(method, headers, client_socket):
     post_params = {}
 
-    # Если метод POST, нужно извлечь тело запроса
+    
     if method == "POST" and client_socket:
-        # Проверяем, есть ли заголовок Content-Length
+        
         if "Content-Length" in headers:
             content_length = int(headers["Content-Length"])
             body = client_socket.recv(content_length).decode('utf-8')
 
-            # Если Content-Type указывает на форму, парсим POST параметры
             if "Content-Type" in headers and headers["Content-Type"] == "application/x-www-form-urlencoded":
                 post_params = parse_qs(body)
     
@@ -226,42 +225,24 @@ def forward_https(source, destination, client):
         insert_response(response_code, response_message, response_headers, response_body, last_request_id)
 
 def generate_cert(domain):
-    cert_path = os.path.join(CERTS_DIR, f'{domain}.pem')
-    key_path = os.path.join(CERTS_DIR, f'{domain}_key.pem')
+    print(domain)
+    cert_path = os.path.join(CERTS_DIR, f'{domain}.crt')
+    key_path = os.path.join(CERTS_DIR, f'{domain}.key')
     
     if os.path.exists(cert_path) and os.path.exists(key_path):
         return cert_path, key_path
 
-    print(f"Generating certificate for {domain}")
-    print("Key path:", key_path, "Cert path:", cert_path)
-
     try:
-        # Генерация CSR
-        print("Running openssl to generate CSR...")
-        subprocess.run([
-            OPENSSL_PATH, 'req', '-new', '-newkey', 'rsa:2048', '-days', '365', '-nodes',
-            '-keyout', key_path, '-out', f'{domain}.csr', '-subj', f'/CN={domain}',
-            '-config', OPENSSL_CNF  
-        ], check=True)
+        subprocess.run(["openssl", "genrsa", "-out", key_path, "2048"])
 
-        # Генерация сертификата
-        print("Running openssl to sign certificate...")
-        subprocess.run([
-            OPENSSL_PATH, 'x509', '-req', '-in', f'{domain}.csr', '-CA', CA_CERT, '-CAkey', CA_KEY, 
-            '-CAcreateserial', '-out', cert_path, '-days', '365'
-        ], check=True)
+        csr_file = f"certs/{domain}.csr"
 
-        print("Verifying the generated certificate...")
-        verification_result = subprocess.run([
-            OPENSSL_PATH, 'verify', '-CAfile', CA_CERT, cert_path
-        ])
+        subprocess.run(["openssl", "req", "-new", "-key", key_path, "-out", csr_file,
+                        "-subj", f"/C=RU/ST=Moscow/L=Moscow/O=MyProxy/CN={domain}"])
         
-        if verification_result.returncode != 0:
-            print(f"Certificate verification failed for {cert_path}.")
-        else:
-            print(f"Certificate verification succeeded for {cert_path}.")
+        subprocess.run(["openssl", "x509", "-req", "-in", csr_file, "-CA", CA_CERT, "-CAkey", CA_KEY,
+                        "-CAcreateserial", "-out", cert_path, "-days", "365", "-sha256"])
 
-        os.remove(f'{domain}.csr')  # Удаляем временный файл с запросом на сертификат
     except subprocess.CalledProcessError as e:
         print(f"Error during OpenSSL call: {e}")
     

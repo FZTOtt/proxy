@@ -1,7 +1,7 @@
 import json
 import subprocess
 from flask import Flask, jsonify
-from db import get_db_connection
+from db import get_db_connection, insert_response
 
 app = Flask(__name__)
 
@@ -21,6 +21,7 @@ def get_request_by_id(request_id):
 
 # Повторная отправка запроса
 def resend_request(method, path, headers, get_params=None, post_params=None, body=None, cookies=None, protocol="HTTP", port=80):
+    import requests
     
     # Восстановление URL из заголовков
     host = headers.get("Host").strip()  # получаем Host
@@ -51,7 +52,7 @@ def resend_request(method, path, headers, get_params=None, post_params=None, bod
         cookies_str = "; ".join([f"{key}={value}" for key, value in cookies.items()])
         curl_cookies = f" -b '{cookies_str}'"
     
-    proxy = "http://proxy:8080"
+    proxy = "http://localhost:8080"
 
     # curl_cmd = f"curl -X {method} {full_url} {' '.join(curl_headers)} --proxy {proxy}{curl_cookies}"
     curl_cmd = f"curl -v -x {proxy} {full_url} " #{method} {' '.join(curl_headers)}{curl_cookies} "
