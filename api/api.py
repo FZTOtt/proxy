@@ -198,7 +198,7 @@ def scan_for_sql_injection(method, path, headers, cookies, get_params, post_para
             modified_cookies[key] = value + payload
             
             # Отправляем запрос
-            response = resend_request(method, path, headers, cookies, get_params, modified_params, body, protocol, port)
+            response = resend_request(method, path, headers, modified_params, get_params, post_params, body, protocol, port)
             if response.returncode == 0:
                 conn = get_db_connection()
                 cursor = conn.cursor()
