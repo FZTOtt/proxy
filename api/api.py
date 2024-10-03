@@ -44,7 +44,7 @@ def resend_request(method, path, headers, get_params=None, post_params=None, bod
     # Конвертируем заголовки из JSON обратно в формат словаря
     curl_headers = []
     for key, value in headers.items():
-        curl_headers.append(f"--header '{key}: {value}'")
+        curl_headers.append(f'--header "{key}: {value}"')
 
     curl_cookies = ""
     if cookies:
@@ -53,8 +53,7 @@ def resend_request(method, path, headers, get_params=None, post_params=None, bod
     
     proxy = "http://proxy:8080"
 
-    # curl_cmd = f"curl -X {method} {full_url} {' '.join(curl_headers)} --proxy {proxy}{curl_cookies}"
-    curl_cmd = f"curl -v -x {proxy} {full_url} " #{method} {' '.join(curl_headers)}{curl_cookies} "
+    curl_cmd = f"curl -X {method} {full_url} {' '.join(curl_headers)} --proxy {proxy}{curl_cookies}"
 
     if method == "POST" and post_params:
         data = '&'.join([f"{k}={v[0]}" for k, v in post_params.items()])
@@ -120,67 +119,77 @@ def get_request(id):
 @app.route('/repeat/<int:id>', methods=['GET'])
 def repeat_request(id):
     result = get_request_by_id(id)
-    print(result)
     if result:
         method, path, headers, cookies, get_params, post_params, body, protocol, port = result
         response = resend_request(method, path, headers, get_params, post_params, body, cookies, protocol, port)
-        # print(response.returncode, response.reason, dict(response.headers), id)
         print(response.returncode)
-        # Вставляем данные ответа в базу
-        # insert_response(response.returncode, response.reason, dict(response.headers), response.body, id)
 
         return jsonify({
-            "status_code": response.returncode,
-            # "headers": dict(response.headers),
-            # "body": response.text
+            "status_code": response.returncode
         })
     return jsonify({"error": "Request not found"}), 404
 
-def scan_for_sql_injection(method, path, headers, get_params, post_params, cookies):
-    import requests
-    
-    # Функция для выполнения запроса и получения ответа
-    def send_request(method, url, headers, get_params, post_params, cookies):
-        if method == "POST":
-            response = requests.post(url, headers=headers, params=get_params, data=post_params, cookies=cookies)
-        else:
-            response = requests.get(url, headers=headers, params=get_params, cookies=cookies)
-        return response
+def scan_for_sql_injection(method, path, headers, cookies, get_params, post_params, body, protocol, port, request_id):
 
-    # Восстановление базового URL
-    host = headers.get("Host").strip()
-    protocol = "https" if "443" in host or host.endswith(".ru") else "http"
-    base_url = f"{protocol}://{host}{path}"
-    
     # Хранение результатов уязвимостей
     vulnerabilities = []
 
     # Подстановка символов SQL-инъекции
     sql_injection_payloads = ["'", '"']
+
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT response_code, response_message, response_headers, response_body FROM responses WHERE request_id = %s", (request_id, ))
+    master_response = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
     
     # Проверка GET параметров
-    for key, value in get_params.items():
-        for payload in sql_injection_payloads:
-            modified_params = get_params.copy()
-            modified_params[key] = value + payload
-            
-            # Отправляем запрос
-            response = send_request(method, base_url, headers, modified_params, post_params, cookies)
-            if response is not None:
-                if response.status_code != 200 or len(response.content) != len(response.content):
-                    vulnerabilities.append(f"GET параметр '{key}' уязвим с payload '{payload}'")
+    if get_params is not None:
+        for key, value in get_params.items():
+            for payload in sql_injection_payloads:
+                modified_params = get_params.copy()
+                modified_params[key] = value + payload
+                
+                response = resend_request(method, path, headers, cookies, modified_params, post_params, body, protocol, port)
+                if response.returncode == 0:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    query = """
+                    SELECT response_code, response_message, response_headers, response_body 
+                    FROM responses 
+                    ORDER BY id DESC 
+                    LIMIT 1
+                    """
+                    cursor.execute(query)
+                    last_response = cursor.fetchall()
+                    if (master_response.response_code != last_response.responce_code or master_response.response_headers['Content-Length'] != last_response.response_headers['Content-Length']):
+                        vulnerabilities.append(f"GET параметр '{key}' уязвим с payload '{payload}'")
 
     # Проверка POST параметров
-    for key, value in post_params.items():
-        for payload in sql_injection_payloads:
-            modified_params = post_params.copy()
-            modified_params[key] = value + payload
-            
-            # Отправляем запрос
-            response = send_request(method, base_url, headers, get_params, modified_params, cookies)
-            if response is not None:
-                if response.status_code != 200 or len(response.content) != len(response.content):
-                    vulnerabilities.append(f"POST параметр '{key}' уязвим с payload '{payload}'")
+    if post_params is not None:
+        for key, value in post_params.items():
+            for payload in sql_injection_payloads:
+                modified_params = post_params.copy()
+                modified_params[key] = value + payload
+                
+                response = resend_request(method, path, headers, cookies, get_params, modified_params, body, protocol, port)
+                if response.returncode == 0:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    query = """
+                    SELECT response_code, response_message, response_headers, response_body 
+                    FROM responses 
+                    ORDER BY id DESC 
+                    LIMIT 1
+                    """
+                    cursor.execute(query)
+                    last_response = cursor.fetchall()
+                    if (master_response.response_code != last_response.responce_code or master_response.response_headers['Content-Length'] != last_response.response_headers['Content-Length']):
+                        vulnerabilities.append(f"GET параметр '{key}' уязвим с payload '{payload}'")
 
     # Проверка Cookie
     for key, value in cookies.items():
@@ -189,10 +198,20 @@ def scan_for_sql_injection(method, path, headers, get_params, post_params, cooki
             modified_cookies[key] = value + payload
             
             # Отправляем запрос
-            response = send_request(method, base_url, headers, get_params, post_params, modified_cookies)
-            if response is not None:
-                if response.status_code != 200 or len(response.content) != len(response.content):
-                    vulnerabilities.append(f"Cookie '{key}' уязвим с payload '{payload}'")
+            response = resend_request(method, path, headers, cookies, get_params, modified_params, body, protocol, port)
+            if response.returncode == 0:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                query = """
+                SELECT response_code, response_message, response_headers, response_body 
+                FROM responses 
+                ORDER BY id DESC 
+                LIMIT 1
+                """
+                cursor.execute(query)
+                last_response = cursor.fetchall()
+                if (master_response.response_code != last_response.responce_code or master_response.response_headers['Content-Length'] != last_response.response_headers['Content-Length']):
+                    vulnerabilities.append(f"GET параметр '{key}' уязвим с payload '{payload}'")
 
     return vulnerabilities
 
@@ -200,33 +219,12 @@ def scan_for_sql_injection(method, path, headers, get_params, post_params, cooki
 # Маршрут для сканирования запроса
 @app.route('/scan/<int:id>', methods=['POST', 'GET'])
 def scan(id):
-    # Извлечение данных из базы данных по заданному ID
-    connection = get_db_connection()  # Ваша функция для подключения к БД
-    cursor = connection.cursor()
-    
-    # Извлечение запроса по ID
-    cursor.execute("SELECT * FROM requests WHERE id = %s", (id,))
-    request_data = cursor.fetchone()
 
-    if request_data is None:
-        return jsonify({"error": "Request not found"}), 404
+    result = get_request_by_id(id)
 
-    method = request_data[1]  # method
-    path = request_data[2]    # path
-    headers = request_data[3]  # headers
-    cookies = request_data[4]   # cookies
-    get_params = request_data[5]  # get_params
-    post_params = request_data[6]  # post_params
-    body = request_data[7]         # body (если нужно)
-
-    # Конвертация заголовков и параметров из JSON
-    headers = json.loads(headers)
-    get_params = json.loads(get_params) if get_params else {}
-    post_params = json.loads(post_params) if post_params else {}
-    cookies = json.loads(cookies) if cookies else {}
-
-    # Запуск сканирования
-    vulnerabilities = scan_for_sql_injection(method, path, headers, get_params, post_params, cookies)
+    if result:
+        method, path, headers, cookies, get_params, post_params, body, protocol, port = result
+        vulnerabilities = scan_for_sql_injection(method, path, headers, cookies, get_params, post_params, body, protocol, port, id)
 
     # Возврат результатов сканирования
     return jsonify({"vulnerabilities": vulnerabilities})

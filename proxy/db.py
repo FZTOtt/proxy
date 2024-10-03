@@ -32,7 +32,9 @@ def initialize_db():
         cookies JSONB,
         get_params JSONB,
         post_params JSONB,
-        body TEXT
+        body TEXT,
+        protocol VARCHAR(5),
+        port VARCHAR(4)
     );
     """
 

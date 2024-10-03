@@ -13,7 +13,7 @@ services:
 
   proxy:
     depends_on:
-      - postgres
+      - api
     build:
       context: .
       dockerfile: build\proxy.Dockerfile
@@ -29,6 +29,8 @@ services:
       - proxy-network
 
   api:
+    depends_on:
+      - postgres
     build:
       context: .
       dockerfile: build\api.Dockerfile
